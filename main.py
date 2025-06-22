@@ -1,18 +1,32 @@
 import os
+from datetime import datetime, timedelta, time
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 
-# ENV variables
+# Env variables
 TOKEN = os.getenv("TOKEN")
-CHANNEL_ID = os.getenv("CHANNEL_ID")  # contoh: @channelkamu atau -100...
-ADMIN_ID = int(os.getenv("ADMIN_ID", "123456789"))  # ganti dengan ID kamu
+CHANNEL_ID = os.getenv("CHANNEL_ID")  # contoh: @channelkamu
+ADMIN_ID = int(os.getenv("ADMIN_ID", "123456789"))  # isi ID kamu
 
-# Konfigurasi awal
+# Konfigurasi kuota
 KUOTA_AWAL = 5
-user_kuota = {}
-is_paused = False  # status pause
+user_kuota = {}  # user_id: int
+last_reset_date = None  # tanggal reset terakhir
+is_paused = False
 
-# START
+# 🔁 Reset kuota semua user setiap jam 06.00 WIB
+def reset_kuota_harian():
+    global last_reset_date, user_kuota
+
+    now_utc = datetime.utcnow()
+    now_wib = now_utc + timedelta(hours=7)  # WIB = UTC+7
+
+    if (now_wib.time() >= time(6, 0)) and (last_reset_date != now_wib.date()):
+        for user_id in user_kuota:
+            user_kuota[user_id] = KUOTA_AWAL
+        last_reset_date = now_wib.date()
+
+# 🟢 Start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "👋 Selamat datang!\n\n"
@@ -23,13 +37,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
 
-# CEK KUOTA
+# 📊 Kuota
 async def cek_kuota(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    reset_kuota_harian()
     user_id = update.effective_user.id
     kuota = user_kuota.get(user_id, KUOTA_AWAL)
-    await update.message.reply_text(f"📊 Kuota kamu: {kuota}")
+    await update.message.reply_text(f"📊 Kuota kamu hari ini: {kuota}")
 
-# TAMBAH KUOTA (ADMIN ONLY)
+# ➕ Tambah kuota (admin)
 async def tambah_kuota(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         await update.message.reply_text("❌ Kamu bukan admin.")
@@ -47,27 +62,29 @@ async def tambah_kuota(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except:
         await update.message.reply_text("❌ Format salah.")
 
-# PAUSE BOT (ADMIN ONLY)
+# ⏸ Pause bot (admin)
 async def pause(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global is_paused
     if update.effective_user.id != ADMIN_ID:
         await update.message.reply_text("❌ Kamu bukan admin.")
         return
     is_paused = True
-    await update.message.reply_text("⏸️ Bot sekarang dalam mode PAUSE. Menfess dihentikan sementara.")
+    await update.message.reply_text("⏸️ Bot sekarang dalam mode PAUSE.")
 
-# RESUME BOT (ADMIN ONLY)
+# ▶ Resume bot (admin)
 async def resume(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global is_paused
     if update.effective_user.id != ADMIN_ID:
         await update.message.reply_text("❌ Kamu bukan admin.")
         return
     is_paused = False
-    await update.message.reply_text("▶️ Bot sudah aktif kembali. Menfess bisa dikirim.")
+    await update.message.reply_text("▶️ Bot sudah aktif kembali.")
 
-# HANDLE MENFESS
+# 📨 Handle #menfess
 async def handle_menfess(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global is_paused
+    reset_kuota_harian()
+
     user_id = update.effective_user.id
     kuota = user_kuota.get(user_id, KUOTA_AWAL)
 
@@ -76,12 +93,12 @@ async def handle_menfess(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if kuota <= 0:
-        await update.message.reply_text("❌ Kuota kamu habis. Hubungi admin untuk menambah kuota.")
+        await update.message.reply_text("❌ Kuota kamu habis. Coba lagi besok jam 06.00 WIB!")
         return
 
     msg_text = update.message.text or update.message.caption or ""
     if not msg_text.lower().startswith("#menfess"):
-        return  # abaikan jika bukan #menfess
+        return
 
     isi = msg_text[len("#menfess"):].strip()
     message = None
@@ -99,8 +116,7 @@ async def handle_menfess(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Kurangi kuota
     user_kuota[user_id] = kuota - 1
     sisa = user_kuota[user_id]
-
-    # Kirim info + tombol lihat postingan
+    # Tombol link postingan (jika channel public)
     if CHANNEL_ID.startswith("@"):
         channel_username = CHANNEL_ID[1:]
         post_link = f"https://t.me/{channel_username}/{message.message_id}"
@@ -116,7 +132,7 @@ async def handle_menfess(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"✅ Menfess kamu sudah dikirim!\n📊 Sisa kuota: {sisa}"
         )
 
-# INISIALISASI BOT
+# 🚀 Jalankan bot
 app = ApplicationBuilder().token(TOKEN).build()
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("kuota", cek_kuota))
