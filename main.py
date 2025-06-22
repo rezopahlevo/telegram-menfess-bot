@@ -113,8 +113,7 @@ async def premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = int(context.args[0])
         hari = int(context.args[1])
         premium_user[user_id] = datetime.utcnow() + timedelta(days=hari)
-        await update.message.
-reply_text(f"✅ User {user_id} jadi premium selama {hari} hari.")
+        await update.message.reply_text(f"✅ User {user_id} jadi premium selama {hari} hari.")
     except:
         await update.message.reply_text("❌ Format: /premium user_id hari")
 
